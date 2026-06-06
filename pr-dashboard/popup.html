@@ -158,9 +158,23 @@
             <label for="ai-provider">AI Provider</label>
             <select id="ai-provider" class="form-control">
               <option value="none">Disabled</option>
-              <option value="gemini">Google Gemini</option>
-              <option value="claude">Anthropic Claude</option>
+              <option value="gemini-local">Google Gemini Nano (Local, No Key)</option>
+              <option value="gemini">Google Gemini (Cloud API Key)</option>
+              <option value="claude-web">Anthropic Claude (Web Session, No Key)</option>
+              <option value="claude">Anthropic Claude (Cloud API Key)</option>
             </select>
+          </div>
+          <div id="ai-gemini-local-info" class="ai-provider-settings hidden">
+            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 4px;">
+              ⚡ Uses Chrome's built-in <strong>Gemini Nano</strong> model. Zero network calls, 100% private and free.<br>
+              <small style="color: var(--status-requested); margin-top: 4px; display: block;">Requires Chrome 127+ and prompt-api flags enabled.</small>
+            </div>
+          </div>
+          <div id="ai-claude-web-info" class="ai-provider-settings hidden">
+            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 4px;">
+              🌐 Uses your active browser session on <strong><a href="https://claude.ai" target="_blank" style="color: #a371f7;">claude.ai</a></strong>. No API key required.<br>
+              <small style="color: var(--status-requested); margin-top: 4px; display: block;">Please ensure you are signed in on Claude.ai in Chrome.</small>
+            </div>
           </div>
           <div id="ai-gemini-settings" class="ai-provider-settings hidden">
             <div class="form-group">

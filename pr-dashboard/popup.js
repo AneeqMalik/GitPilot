@@ -93,17 +93,22 @@ function setupEventListeners() {
 
   // Toggle visible settings cards based on AI provider
   const aiProviderSelect = document.getElementById('ai-provider');
-  const aiGeminiSettings = document.getElementById('ai-gemini-settings');
-  const aiClaudeSettings = document.getElementById('ai-claude-settings');
 
   aiProviderSelect.addEventListener('change', () => {
     const val = aiProviderSelect.value;
-    aiGeminiSettings.classList.add('hidden');
-    aiClaudeSettings.classList.add('hidden');
-    if (val === 'gemini') {
-      aiGeminiSettings.classList.remove('hidden');
+    document.getElementById('ai-gemini-local-info').classList.add('hidden');
+    document.getElementById('ai-claude-web-info').classList.add('hidden');
+    document.getElementById('ai-gemini-settings').classList.add('hidden');
+    document.getElementById('ai-claude-settings').classList.add('hidden');
+    
+    if (val === 'gemini-local') {
+      document.getElementById('ai-gemini-local-info').classList.remove('hidden');
+    } else if (val === 'claude-web') {
+      document.getElementById('ai-claude-web-info').classList.remove('hidden');
+    } else if (val === 'gemini') {
+      document.getElementById('ai-gemini-settings').classList.remove('hidden');
     } else if (val === 'claude') {
-      aiClaudeSettings.classList.remove('hidden');
+      document.getElementById('ai-claude-settings').classList.remove('hidden');
     }
   });
 }
@@ -139,14 +144,19 @@ async function loadSettings() {
   };
 
   // Toggle visibility of fields
-  const aiGeminiSettings = document.getElementById('ai-gemini-settings');
-  const aiClaudeSettings = document.getElementById('ai-claude-settings');
-  aiGeminiSettings.classList.add('hidden');
-  aiClaudeSettings.classList.add('hidden');
-  if (aiProvider === 'gemini') {
-    aiGeminiSettings.classList.remove('hidden');
+  document.getElementById('ai-gemini-local-info').classList.add('hidden');
+  document.getElementById('ai-claude-web-info').classList.add('hidden');
+  document.getElementById('ai-gemini-settings').classList.add('hidden');
+  document.getElementById('ai-claude-settings').classList.add('hidden');
+  
+  if (aiProvider === 'gemini-local') {
+    document.getElementById('ai-gemini-local-info').classList.remove('hidden');
+  } else if (aiProvider === 'claude-web') {
+    document.getElementById('ai-claude-web-info').classList.remove('hidden');
+  } else if (aiProvider === 'gemini') {
+    document.getElementById('ai-gemini-settings').classList.remove('hidden');
   } else if (aiProvider === 'claude') {
-    aiClaudeSettings.classList.remove('hidden');
+    document.getElementById('ai-claude-settings').classList.remove('hidden');
   }
 }
 
@@ -471,9 +481,13 @@ async function runAiReview(btn, prId, repo, number) {
 
     // 3. Run AI Review
     let reviewResult;
-    if (aiSettings.provider === 'gemini') {
+    if (aiSettings.provider === 'gemini-local') {
+      reviewResult = await api.runLocalGeminiReview(formattedChanges);
+    } else if (aiSettings.provider === 'gemini') {
       if (!aiSettings.geminiKey) throw new Error('Gemini API key is not configured.');
       reviewResult = await api.runGeminiReview(aiSettings.geminiKey, aiSettings.geminiModel, formattedChanges);
+    } else if (aiSettings.provider === 'claude-web') {
+      reviewResult = await api.runClaudeWebReview(formattedChanges);
     } else if (aiSettings.provider === 'claude') {
       if (!aiSettings.claudeKey) throw new Error('Claude API key is not configured.');
       reviewResult = await api.runClaudeReview(aiSettings.claudeKey, aiSettings.claudeModel, formattedChanges);
