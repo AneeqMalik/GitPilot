@@ -695,3 +695,67 @@ input:checked + .slider:before {
 .legend-color.approved { background-color: var(--status-approved); }
 .legend-color.pending { background-color: var(--status-pending); }
 .legend-color.changes { background-color: var(--status-changes); }
+
+/* AI Review button styles */
+.ai-review-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  margin-left: 8px;
+}
+
+.ai-review-btn:hover {
+  color: #a371f7;
+  background-color: rgba(163, 113, 247, 0.15);
+}
+
+.ai-review-btn.loading {
+  color: #a371f7;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.ai-review-btn.loading svg {
+  animation: spin 1s linear infinite;
+}
+
+.ai-review-btn.completed {
+  color: var(--status-approved);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Form control for select inputs */
+.form-group select.form-control {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: rgba(0, 0, 0, 0.5);
+  color: var(--text-color);
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+}
+
+.form-group select.form-control:focus {
+  outline: none;
+  border-color: var(--status-requested);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+}
+
+.form-group select.form-control option {
+  background-color: #161b22;
+  color: var(--text-color);
+}
+
+@keyframes spin {
+  100% { transform: rotate(360deg); }
+}

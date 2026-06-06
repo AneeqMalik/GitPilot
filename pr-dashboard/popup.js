@@ -1,6 +1,8 @@
 // State
 let prData = { myPRs: [], reviewRequestedPRs: [] };
 let currentUsername = '';
+let aiSettings = { provider: 'none', geminiKey: '', geminiModel: 'gemini-2.5-flash', claudeKey: '', claudeModel: 'claude-3-5-sonnet-20241022' };
+let aiReviewedPrs = [];
 
 // DOM Elements
 const prListEl = document.getElementById('pr-list');
@@ -19,6 +21,11 @@ const dashboardMetricsEl = document.getElementById('dashboard-metrics');
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
+
+  // Load reviewed PRs
+  const localReviewed = await chrome.storage.local.get(['aiReviewedPrs']);
+  aiReviewedPrs = localReviewed.aiReviewedPrs || [];
+
   await loadSettings();
   
   // Try loading cached data first for instant render
@@ -83,11 +90,28 @@ function setupEventListeners() {
   });
 
   saveSettingsBtn.addEventListener('click', saveSettings);
+
+  // Toggle visible settings cards based on AI provider
+  const aiProviderSelect = document.getElementById('ai-provider');
+  const aiGeminiSettings = document.getElementById('ai-gemini-settings');
+  const aiClaudeSettings = document.getElementById('ai-claude-settings');
+
+  aiProviderSelect.addEventListener('change', () => {
+    const val = aiProviderSelect.value;
+    aiGeminiSettings.classList.add('hidden');
+    aiClaudeSettings.classList.add('hidden');
+    if (val === 'gemini') {
+      aiGeminiSettings.classList.remove('hidden');
+    } else if (val === 'claude') {
+      aiClaudeSettings.classList.remove('hidden');
+    }
+  });
 }
 
 async function loadSettings() {
   const data = await chrome.storage.sync.get([
-    'github_pat', 'github_username', 'reminder_enabled', 'reminder_time'
+    'github_pat', 'github_username', 'reminder_enabled', 'reminder_time',
+    'ai_provider', 'ai_gemini_key', 'ai_gemini_model', 'ai_claude_key', 'ai_claude_model'
   ]);
   
   currentUsername = data.github_username || '';
@@ -96,6 +120,34 @@ async function loadSettings() {
   document.getElementById('github-username').value = currentUsername;
   document.getElementById('reminder-enabled').checked = data.reminder_enabled !== false; // default true
   document.getElementById('reminder-time').value = data.reminder_time || '10:00';
+
+  // Load AI configurations
+  const aiProvider = data.ai_provider || 'none';
+  document.getElementById('ai-provider').value = aiProvider;
+  document.getElementById('ai-gemini-key').value = data.ai_gemini_key || '';
+  document.getElementById('ai-gemini-model').value = data.ai_gemini_model || 'gemini-2.5-flash';
+  document.getElementById('ai-claude-key').value = data.ai_claude_key || '';
+  document.getElementById('ai-claude-model').value = data.ai_claude_model || 'claude-3-5-sonnet-20241022';
+
+  // Cache settings state globally
+  aiSettings = {
+    provider: aiProvider,
+    geminiKey: data.ai_gemini_key || '',
+    geminiModel: data.ai_gemini_model || 'gemini-2.5-flash',
+    claudeKey: data.ai_claude_key || '',
+    claudeModel: data.ai_claude_model || 'claude-3-5-sonnet-20241022'
+  };
+
+  // Toggle visibility of fields
+  const aiGeminiSettings = document.getElementById('ai-gemini-settings');
+  const aiClaudeSettings = document.getElementById('ai-claude-settings');
+  aiGeminiSettings.classList.add('hidden');
+  aiClaudeSettings.classList.add('hidden');
+  if (aiProvider === 'gemini') {
+    aiGeminiSettings.classList.remove('hidden');
+  } else if (aiProvider === 'claude') {
+    aiClaudeSettings.classList.remove('hidden');
+  }
 }
 
 async function saveSettings() {
@@ -104,16 +156,36 @@ async function saveSettings() {
   const reminderEnabled = document.getElementById('reminder-enabled').checked;
   const reminderTime = document.getElementById('reminder-time').value;
 
+  const aiProvider = document.getElementById('ai-provider').value;
+  const aiGeminiKey = document.getElementById('ai-gemini-key').value.trim();
+  const aiGeminiModel = document.getElementById('ai-gemini-model').value;
+  const aiClaudeKey = document.getElementById('ai-claude-key').value.trim();
+  const aiClaudeModel = document.getElementById('ai-claude-model').value;
+
   const msgEl = document.getElementById('settings-message');
   
   await chrome.storage.sync.set({
     github_pat: pat,
     github_username: username,
     reminder_enabled: reminderEnabled,
-    reminder_time: reminderTime
+    reminder_time: reminderTime,
+    ai_provider: aiProvider,
+    ai_gemini_key: aiGeminiKey,
+    ai_gemini_model: aiGeminiModel,
+    ai_claude_key: aiClaudeKey,
+    ai_claude_model: aiClaudeModel
   });
 
   currentUsername = username;
+
+  // Cache settings state globally
+  aiSettings = {
+    provider: aiProvider,
+    geminiKey: aiGeminiKey,
+    geminiModel: aiGeminiModel,
+    claudeKey: aiClaudeKey,
+    claudeModel: aiClaudeModel
+  };
 
   msgEl.classList.remove('hidden');
   setTimeout(() => msgEl.classList.add('hidden'), 3000);
@@ -234,13 +306,35 @@ function renderPRs() {
       
     const authorDisplay = currentUsername && pr.author.toLowerCase() === currentUsername.toLowerCase() ? 'by me' : `by ${pr.author}`;
 
+    // AI Review Integration
+    const hasAiReviewed = aiReviewedPrs.includes(pr.id);
+    let aiReviewHtml = '';
+    if (aiSettings.provider !== 'none' && pr.status === 'Review Requested from Me') {
+      if (hasAiReviewed) {
+        aiReviewHtml = `
+          <span class="ai-review-btn completed" title="AI Review Completed">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </span>
+        `;
+      } else {
+        aiReviewHtml = `
+          <button class="ai-review-btn" data-pr-id="${pr.id}" data-repo="${escapeHtml(pr.repo_name)}" data-number="${pr.number}" title="Request AI Code Review">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5Z"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/></svg>
+          </button>
+        `;
+      }
+    }
+
     card.innerHTML = `
       <div class="card-top">
         <div class="repo-info">
           <a href="${pr.repo_url}" target="_blank" class="repo-link">${escapeHtml(pr.repo_name)} #${pr.number}</a>
           <span class="pr-author">${escapeHtml(authorDisplay)}</span>
         </div>
-        <span class="status-badge ${badgeClass}">${pr.status}</span>
+        <div style="display: flex; align-items: center;">
+          <span class="status-badge ${badgeClass}">${pr.status}</span>
+          ${aiReviewHtml}
+        </div>
       </div>
       <a href="${pr.html_url}" target="_blank" class="pr-title">${escapeHtml(pr.title)}</a>
       ${tagsHtml ? `<div class="tags">${tagsHtml}</div>` : ''}
@@ -251,6 +345,21 @@ function renderPRs() {
     `;
 
     prListEl.appendChild(card);
+  });
+
+  // Bind AI Review Buttons
+  const aiBtns = prListEl.querySelectorAll('.ai-review-btn:not(.completed)');
+  aiBtns.forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      
+      const prId = parseInt(btn.dataset.prId, 10);
+      const repo = btn.dataset.repo;
+      const number = parseInt(btn.dataset.number, 10);
+      
+      await runAiReview(btn, prId, repo, number);
+    });
   });
 }
 
@@ -327,4 +436,74 @@ function renderStats() {
   if (approved > 0) legendEl.innerHTML += `<div class="legend-item"><div class="legend-color approved"></div>Approved (${approved})</div>`;
   if (pending > 0) legendEl.innerHTML += `<div class="legend-item"><div class="legend-color pending"></div>Pending (${pending})</div>`;
   if (changes > 0) legendEl.innerHTML += `<div class="legend-item"><div class="legend-color changes"></div>Changes Req (${changes})</div>`;
+}
+
+async function runAiReview(btn, prId, repo, number) {
+  // Show loading state on button
+  btn.classList.add('loading');
+  // Replace sparkles with loading spinner
+  btn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="6.34" y1="17.66" x2="8.46" y2="19.54"/><line x1="15.54" y1="4.46" x2="17.66" y2="6.34"/></svg>
+  `;
+  btn.title = "AI Reviewing...";
+
+  try {
+    const api = self.githubAPI;
+    await api.init();
+    
+    // Split repo into owner and repo name
+    const parts = repo.split('/');
+    if (parts.length !== 2) throw new Error('Invalid repository name');
+    const owner = parts[0];
+    const repoName = parts[1];
+
+    // 1. Fetch files
+    const files = await api.getPRFiles(owner, repoName, number);
+    if (!files || files.length === 0) {
+      throw new Error('No files found to review.');
+    }
+
+    // 2. Format patch files for AI
+    const formattedChanges = api.formatPRChangesForAI(files);
+    if (!formattedChanges.trim()) {
+      throw new Error('No code changes detected to review.');
+    }
+
+    // 3. Run AI Review
+    let reviewResult;
+    if (aiSettings.provider === 'gemini') {
+      if (!aiSettings.geminiKey) throw new Error('Gemini API key is not configured.');
+      reviewResult = await api.runGeminiReview(aiSettings.geminiKey, aiSettings.geminiModel, formattedChanges);
+    } else if (aiSettings.provider === 'claude') {
+      if (!aiSettings.claudeKey) throw new Error('Claude API key is not configured.');
+      reviewResult = await api.runClaudeReview(aiSettings.claudeKey, aiSettings.claudeModel, formattedChanges);
+    } else {
+      throw new Error('No AI provider selected.');
+    }
+
+    // 4. Submit review to GitHub
+    await api.submitPRReview(owner, repoName, number, reviewResult);
+
+    // 5. Update complete state
+    btn.classList.remove('loading');
+    btn.classList.add('completed');
+    btn.title = "AI Review Completed";
+    btn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    `;
+
+    // 6. Save completed review status
+    aiReviewedPrs.push(prId);
+    await chrome.storage.local.set({ aiReviewedPrs: aiReviewedPrs });
+
+  } catch (error) {
+    console.error('AI Review failed:', error);
+    btn.classList.remove('loading');
+    // Restore sparkles icon
+    btn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5Z"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/></svg>
+    `;
+    btn.title = "Review failed. Click to try again.";
+    alert(`AI Review failed: ${error.message}`);
+  }
 }
