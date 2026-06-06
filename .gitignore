@@ -8,3 +8,4 @@ desktop.ini
 node_modules/
 .env
 .geminiignore
+GEMINI.md
