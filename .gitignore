@@ -1,0 +1,10 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and local files
+*.log
+node_modules/
+.env
+.geminiignore
