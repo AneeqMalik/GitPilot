@@ -465,20 +465,87 @@ Please review the code changes and return your response strictly as a JSON objec
     }
   }
 
-  async submitPRReview(owner, repo, prNumber, reviewData) {
+  async submitPRReview(owner, repo, prNumber, reviewData, files = []) {
     const url = `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
     
-    const githubComments = (reviewData.comments || []).map(c => ({
-      path: c.path,
-      line: parseInt(c.line, 10),
-      side: 'RIGHT',
-      body: c.body
-    }));
+    console.log("=== [GitPilot AI Review] Starting Submission ===");
+    console.log(`PR: ${owner}/${repo} #${prNumber}`);
+    console.log("Raw AI Comments:", reviewData);
+    console.log("PR Files:", files);
+
+    // Parse patches to extract valid line numbers for RIGHT side (ONLY added/modified lines can be commented on inline)
+    const validMap = new Map();
+    for (const file of files) {
+      if (!file.patch) continue;
+      const validLines = new Set();
+      const parsed = this.parsePatch(file.patch);
+      for (const pl of parsed) {
+        if (pl.type === 'added' && pl.lineNum) {
+          validLines.add(pl.lineNum);
+        }
+      }
+      const normFile = file.filename.replace(/^[./\\]+/, '').replace(/\\/g, '/');
+      validMap.set(normFile, validLines);
+    }
+
+    console.log("Parsed Valid Line Maps for RIGHT side (Added only):", Array.from(validMap.entries()).reduce((acc, [k, v]) => {
+      acc[k] = Array.from(v);
+      return acc;
+    }, {}));
+
+    const githubComments = [];
+    const skippedComments = [];
+
+    for (const c of (reviewData.comments || [])) {
+      const lineNum = parseInt(c.line, 10);
+      const normCommentPath = (c.path || '').replace(/^[./\\]+/, '').replace(/\\/g, '/');
+      
+      let matchedFileKey = null;
+      // Direct match
+      if (validMap.has(normCommentPath)) {
+        matchedFileKey = normCommentPath;
+      } else {
+        // Fallback: search for a file that ends with the comment path or vice versa
+        for (const key of validMap.keys()) {
+          if (key.endsWith(normCommentPath) || normCommentPath.endsWith(key)) {
+            matchedFileKey = key;
+            break;
+          }
+        }
+      }
+
+      if (matchedFileKey && !isNaN(lineNum) && lineNum > 0) {
+        const validLines = validMap.get(matchedFileKey);
+        if (validLines.has(lineNum)) {
+          githubComments.push({
+            path: matchedFileKey,
+            line: lineNum,
+            side: 'RIGHT',
+            body: c.body
+          });
+          continue;
+        }
+      }
+
+      // If we reach here, the comment is invalid for inline posting
+      skippedComments.push(c);
+    }
+
+    console.log("Accepted Inline Comments:", githubComments);
+    console.log("Skipped Out-of-Diff Comments (added to review description):", skippedComments);
 
     const hasComments = githubComments.length > 0;
-    const bodyText = hasComments 
+    let bodyText = hasComments 
       ? "✨ **GitPilot AI Code Review:** I have completed the line-by-line code review. Please see the comments below."
-      : "✨ **GitPilot AI Code Review:** No issues found! High quality changes! LGTM 👍";
+      : "✨ **GitPilot AI Code Review:** No inline issues found! High quality changes! LGTM 👍";
+
+    if (skippedComments.length > 0) {
+      bodyText += "\n\n---\n\n### 📝 General Observations / Out-of-Diff Comments\n";
+      bodyText += "The following feedback was provided by the AI but could not be attached to specific lines in the diff:\n\n";
+      for (const sc of skippedComments) {
+        bodyText += `- **${sc.path || 'General'}${sc.line ? `:${sc.line}` : ''}**: ${sc.body}\n`;
+      }
+    }
 
     const reviewBody = {
       body: bodyText,
@@ -489,6 +556,8 @@ Please review the code changes and return your response strictly as a JSON objec
       reviewBody.comments = githubComments;
     }
 
+    console.log("Sending Final Review Payload to GitHub:", reviewBody);
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -498,12 +567,73 @@ Please review the code changes and return your response strictly as a JSON objec
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        console.error("GitHub API Review Submission Failed Details:", {
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: errData
+        });
+
+        // 422 Fallback: If inline comments fail to resolve, submit a body-only review
+        if (response.status === 422 && hasComments) {
+          console.warn("[GitPilot AI Review] Line could not be resolved. Retrying review as summary/body-only review to bypass 422...");
+          return await this.submitBodyOnlyReview(owner, repo, prNumber, reviewData, "Failed to place some comments inline due to unresolved diff lines.");
+        }
+
         throw new Error(`Failed to submit review: ${response.status} - ${errData.message || response.statusText}`);
       }
 
-      return await response.json();
+      const resJson = await response.json();
+      console.log("GitHub Review Submission Success Response:", resJson);
+      return resJson;
     } catch (error) {
       console.error('Error submitting PR review:', error);
+      throw error;
+    }
+  }
+
+  async submitBodyOnlyReview(owner, repo, prNumber, reviewData, reasonText = "") {
+    const url = `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+    
+    let bodyText = "✨ **GitPilot AI Code Review:** I have completed the review.\n\n";
+    if (reasonText) {
+      bodyText += `*Note: ${reasonText} All findings have been automatically grouped below to bypass inline limits.*\n\n`;
+    }
+    bodyText += "### 📝 Review Comments\n\n";
+    
+    const comments = reviewData.comments || [];
+    if (comments.length === 0) {
+      bodyText += "No issues found! High quality changes! LGTM 👍";
+    } else {
+      for (const c of comments) {
+        bodyText += `- **${c.path || 'General'}${c.line ? `:${c.line}` : ''}**: ${c.body}\n`;
+      }
+    }
+
+    const reviewBody = {
+      body: bodyText,
+      event: 'COMMENT'
+    };
+
+    console.log("Sending Fallback Body-Only Review Payload to GitHub:", reviewBody);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(reviewBody)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        console.error("GitHub Fallback Body-Only Review Submission Failed:", errData);
+        throw new Error(`Failed to submit fallback review: ${response.status} - ${errData.message || response.statusText}`);
+      }
+
+      const resJson = await response.json();
+      console.log("GitHub Fallback Review Submission Success Response:", resJson);
+      return resJson;
+    } catch (error) {
+      console.error('Error submitting fallback body-only review:', error);
       throw error;
     }
   }

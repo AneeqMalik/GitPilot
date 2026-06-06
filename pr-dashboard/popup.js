@@ -1,7 +1,7 @@
 // State
 let prData = { myPRs: [], reviewRequestedPRs: [] };
 let currentUsername = '';
-let aiSettings = { provider: 'none', geminiKey: '', geminiModel: 'gemini-2.5-flash', claudeKey: '', claudeModel: 'claude-3-5-sonnet-20241022' };
+let aiSettings = { provider: 'none', geminiKey: '', geminiModel: 'gemini-2.5-flash', claudeKey: '', claudeModel: 'claude-3-5-sonnet-20241022', showForOthers: false };
 let aiReviewedPrs = [];
 
 // DOM Elements
@@ -116,7 +116,8 @@ function setupEventListeners() {
 async function loadSettings() {
   const data = await chrome.storage.sync.get([
     'github_pat', 'github_username', 'reminder_enabled', 'reminder_time',
-    'ai_provider', 'ai_gemini_key', 'ai_gemini_model', 'ai_claude_key', 'ai_claude_model'
+    'ai_provider', 'ai_gemini_key', 'ai_gemini_model', 'ai_claude_key', 'ai_claude_model',
+    'ai_show_for_others'
   ]);
   
   currentUsername = data.github_username || '';
@@ -128,9 +129,13 @@ async function loadSettings() {
 
   // Load AI configurations
   const aiProvider = data.ai_provider || 'none';
+  const aiShowForOthers = data.ai_show_for_others === true; // default false
   document.getElementById('ai-provider').value = aiProvider;
+  document.getElementById('ai-show-for-others').checked = aiShowForOthers;
   document.getElementById('ai-gemini-key').value = data.ai_gemini_key || '';
-  document.getElementById('ai-gemini-model').value = data.ai_gemini_model || 'gemini-2.5-flash';
+  let geminiModel = data.ai_gemini_model || 'gemini-2.5-flash';
+  if (geminiModel === 'gemini-1.5-flash') geminiModel = 'gemini-2.5-flash';
+  document.getElementById('ai-gemini-model').value = geminiModel;
   document.getElementById('ai-claude-key').value = data.ai_claude_key || '';
   document.getElementById('ai-claude-model').value = data.ai_claude_model || 'claude-3-5-sonnet-20241022';
 
@@ -140,7 +145,8 @@ async function loadSettings() {
     geminiKey: data.ai_gemini_key || '',
     geminiModel: data.ai_gemini_model || 'gemini-2.5-flash',
     claudeKey: data.ai_claude_key || '',
-    claudeModel: data.ai_claude_model || 'claude-3-5-sonnet-20241022'
+    claudeModel: data.ai_claude_model || 'claude-3-5-sonnet-20241022',
+    showForOthers: aiShowForOthers
   };
 
   // Toggle visibility of fields
@@ -167,6 +173,7 @@ async function saveSettings() {
   const reminderTime = document.getElementById('reminder-time').value;
 
   const aiProvider = document.getElementById('ai-provider').value;
+  const aiShowForOthers = document.getElementById('ai-show-for-others').checked;
   const aiGeminiKey = document.getElementById('ai-gemini-key').value.trim();
   const aiGeminiModel = document.getElementById('ai-gemini-model').value;
   const aiClaudeKey = document.getElementById('ai-claude-key').value.trim();
@@ -180,6 +187,7 @@ async function saveSettings() {
     reminder_enabled: reminderEnabled,
     reminder_time: reminderTime,
     ai_provider: aiProvider,
+    ai_show_for_others: aiShowForOthers,
     ai_gemini_key: aiGeminiKey,
     ai_gemini_model: aiGeminiModel,
     ai_claude_key: aiClaudeKey,
@@ -194,7 +202,8 @@ async function saveSettings() {
     geminiKey: aiGeminiKey,
     geminiModel: aiGeminiModel,
     claudeKey: aiClaudeKey,
-    claudeModel: aiClaudeModel
+    claudeModel: aiClaudeModel,
+    showForOthers: aiShowForOthers
   };
 
   msgEl.classList.remove('hidden');
@@ -319,17 +328,19 @@ function renderPRs() {
     // AI Review Integration
     const hasAiReviewed = aiReviewedPrs.includes(pr.id);
     let aiReviewHtml = '';
-    if (aiSettings.provider !== 'none' && pr.status === 'Review Requested from Me') {
+    const showAiButton = pr.status === 'Review Requested from Me' || (aiSettings.showForOthers === true);
+    if (aiSettings.provider !== 'none' && showAiButton) {
       if (hasAiReviewed) {
         aiReviewHtml = `
-          <span class="ai-review-btn completed" title="AI Review Completed">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span class="ai-review-btn completed circular-check-badge" title="AI Review Completed">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           </span>
         `;
       } else {
         aiReviewHtml = `
-          <button class="ai-review-btn" data-pr-id="${pr.id}" data-repo="${escapeHtml(pr.repo_name)}" data-number="${pr.number}" title="Request AI Code Review">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5Z"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/></svg>
+          <button class="ai-review-btn ai-badge-pill" data-pr-id="${pr.id}" data-repo="${escapeHtml(pr.repo_name)}" data-number="${pr.number}" title="Request AI Code Review">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5Z"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/></svg>
+            AI Review
           </button>
         `;
       }
@@ -453,7 +464,8 @@ async function runAiReview(btn, prId, repo, number) {
   btn.classList.add('loading');
   // Replace sparkles with loading spinner
   btn.innerHTML = `
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="6.34" y1="17.66" x2="8.46" y2="19.54"/><line x1="15.54" y1="4.46" x2="17.66" y2="6.34"/></svg>
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="6.34" y1="17.66" x2="8.46" y2="19.54"/><line x1="15.54" y1="4.46" x2="17.66" y2="6.34"/></svg>
+    Reviewing...
   `;
   btn.title = "AI Reviewing...";
 
@@ -496,14 +508,16 @@ async function runAiReview(btn, prId, repo, number) {
     }
 
     // 4. Submit review to GitHub
-    await api.submitPRReview(owner, repoName, number, reviewResult);
+    await api.submitPRReview(owner, repoName, number, reviewResult, files);
 
     // 5. Update complete state
     btn.classList.remove('loading');
+    btn.classList.remove('ai-badge-pill');
     btn.classList.add('completed');
+    btn.classList.add('circular-check-badge');
     btn.title = "AI Review Completed";
     btn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
     `;
 
     // 6. Save completed review status
@@ -513,9 +527,10 @@ async function runAiReview(btn, prId, repo, number) {
   } catch (error) {
     console.error('AI Review failed:', error);
     btn.classList.remove('loading');
-    // Restore sparkles icon
+    // Restore sparkles icon and pill layout
     btn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5Z"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/></svg>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275Z"/><path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5.5Z"/><path d="m19 17 1 2.5 2.5.5-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1Z"/></svg>
+      AI Review
     `;
     btn.title = "Review failed. Click to try again.";
     alert(`AI Review failed: ${error.message}`);
