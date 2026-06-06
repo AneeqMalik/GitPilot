@@ -245,6 +245,466 @@ class GitHubAPI {
 
     return { state: 'Pending Review', pendingOn: requestedLogins };
   }
+
+  async getPRFiles(owner, repo, prNumber) {
+    const url = `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`;
+    try {
+      const response = await fetch(url, { headers: this.getHeaders() });
+      if (!response.ok) throw new Error(`Failed to fetch PR files: ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching PR files:', error);
+      throw error;
+    }
+  }
+
+  parsePatch(patch) {
+    if (!patch) return [];
+    const lines = patch.split('\n');
+    const parsedLines = [];
+    let lineNew = 0;
+    let lineOld = 0;
+
+    for (const line of lines) {
+      const hunkHeaderMatch = line.match(/^@@ -(\d+),?\d* \+(\d+),?\d* @@/);
+      if (hunkHeaderMatch) {
+        lineOld = parseInt(hunkHeaderMatch[1], 10);
+        lineNew = parseInt(hunkHeaderMatch[2], 10);
+        parsedLines.push({ type: 'header', text: line });
+        continue;
+      }
+
+      if (line.startsWith('+')) {
+        parsedLines.push({ type: 'added', text: line, lineNum: lineNew });
+        lineNew++;
+      } else if (line.startsWith('-')) {
+        parsedLines.push({ type: 'deleted', text: line, lineNum: lineOld });
+        lineOld++;
+      } else {
+        parsedLines.push({ type: 'context', text: line, lineNum: lineNew });
+        lineNew++;
+        lineOld++;
+      }
+    }
+    return parsedLines;
+  }
+
+  formatPRChangesForAI(files) {
+    let formatted = "";
+    for (const file of files) {
+      if (!file.patch) continue;
+      formatted += `File: ${file.filename}\n`;
+      const parsed = this.parsePatch(file.patch);
+      for (const pl of parsed) {
+        if (pl.type === 'header') {
+          formatted += `${pl.text}\n`;
+        } else if (pl.type === 'added') {
+          formatted += `[${pl.lineNum}] + ${pl.text.substring(1)}\n`;
+        } else if (pl.type === 'deleted') {
+          formatted += `[-] - ${pl.text.substring(1)}\n`;
+        } else if (pl.type === 'context') {
+          formatted += `[${pl.lineNum}]   ${pl.text.substring(1)}\n`;
+        }
+      }
+      formatted += `\n`;
+    }
+    return formatted;
+  }
+
+  async runGeminiReview(apiKey, model, formattedChanges) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    const systemInstruction = `You are a professional software engineer performing a line-by-line code review of a GitHub PR.
+Analyze the file changes carefully, looking for:
+- Bug and logic errors.
+- Cleanliness, readability, and idiomatic code structure.
+- Efficiency and performance bottlenecks.
+- Basic security concerns.
+
+RULES:
+1. Only comment on added or modified lines (marked with '+' and having a positive integer line number in brackets like [12]).
+2. Never comment on deleted lines (marked with '[-]') or context lines.
+3. Ensure comments are highly specific and actionable.
+4. Output a JSON object matching this schema:
+{
+  "comments": [
+    {
+      "path": "relative/file/path.js",
+      "line": 12,
+      "body": "Your review comment on this line"
+    }
+  ]
+}
+5. If no issues are found, return an empty comments list. Keep comments focused, only comment on actual issues or clear improvements.`;
+
+    const userPrompt = `Here is the formatted diff showing the files and lines changed in the pull request:
+
+${formattedChanges}
+
+Please review the code changes and return your response strictly as a JSON object containing the comments.`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: userPrompt }
+              ]
+            }
+          ],
+          systemInstruction: {
+            parts: [
+              { text: systemInstruction }
+            ]
+          },
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.2
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(`Gemini API error: ${response.status} - ${errData.error?.message || response.statusText}`);
+      }
+
+      const resData = await response.json();
+      const responseText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!responseText) throw new Error('Empty response from Gemini API');
+      
+      return JSON.parse(responseText);
+    } catch (error) {
+      console.error('Error in Gemini review:', error);
+      throw error;
+    }
+  }
+
+  async runClaudeReview(apiKey, model, formattedChanges) {
+    const url = 'https://api.anthropic.com/v1/messages';
+    
+    const systemInstruction = `You are a professional software engineer performing a line-by-line code review of a GitHub PR.
+Analyze the file changes carefully, looking for:
+- Bug and logic errors.
+- Cleanliness, readability, and idiomatic code structure.
+- Efficiency and performance bottlenecks.
+- Basic security concerns.
+
+RULES:
+1. Only comment on added or modified lines (marked with '+' and having a positive integer line number in brackets like [12]).
+2. Never comment on deleted lines (marked with '[-]') or context lines.
+3. Ensure comments are highly specific and actionable.
+4. You must output a JSON object matching this schema. Your entire response must be a single, valid JSON object, and contain nothing else. Do not use markdown wraps or explanations outside of the JSON.
+{
+  "comments": [
+    {
+      "path": "relative/file/path.js",
+      "line": 12,
+      "body": "Your review comment on this line"
+    }
+  ]
+}
+5. If no issues are found, return an empty comments list. Keep comments focused, only comment on actual issues or clear improvements.`;
+
+    const userPrompt = `Here is the formatted diff showing the files and lines changed in the pull request:
+
+${formattedChanges}
+
+Please review the code changes and return your response strictly as a JSON object containing the comments.`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: 4000,
+          temperature: 0.2,
+          system: systemInstruction,
+          messages: [
+            {
+              role: 'user',
+               content: userPrompt
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(`Claude API error: ${response.status} - ${errData.error?.message || response.statusText}`);
+      }
+
+      const resData = await response.json();
+      const responseText = resData.content?.[0]?.text;
+      if (!responseText) throw new Error('Empty response from Claude API');
+      
+      let cleanedText = responseText.trim();
+      if (cleanedText.startsWith('```json')) {
+        cleanedText = cleanedText.substring(7);
+      }
+      if (cleanedText.endsWith('```')) {
+        cleanedText = cleanedText.substring(0, cleanedText.length - 3);
+      }
+      cleanedText = cleanedText.trim();
+
+      return JSON.parse(cleanedText);
+    } catch (error) {
+      console.error('Error in Claude review:', error);
+      throw error;
+    }
+  }
+
+  async submitPRReview(owner, repo, prNumber, reviewData) {
+    const url = `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+    
+    const githubComments = (reviewData.comments || []).map(c => ({
+      path: c.path,
+      line: parseInt(c.line, 10),
+      side: 'RIGHT',
+      body: c.body
+    }));
+
+    const hasComments = githubComments.length > 0;
+    const bodyText = hasComments 
+      ? "✨ **GitPilot AI Code Review:** I have completed the line-by-line code review. Please see the comments below."
+      : "✨ **GitPilot AI Code Review:** No issues found! High quality changes! LGTM 👍";
+
+    const reviewBody = {
+      body: bodyText,
+      event: 'COMMENT'
+    };
+
+    if (hasComments) {
+      reviewBody.comments = githubComments;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(reviewBody)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(`Failed to submit review: ${response.status} - ${errData.message || response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error submitting PR review:', error);
+      throw error;
+    }
+  }
+
+  async runLocalGeminiReview(formattedChanges) {
+    if (!window.ai || !window.ai.languageModel) {
+      throw new Error('Chrome Gemini Nano (window.ai.languageModel) is not enabled. Please enable it in chrome://flags.');
+    }
+
+    const capabilities = await window.ai.languageModel.capabilities();
+    if (capabilities.available === 'no') {
+      throw new Error('Gemini Nano is not available or not yet downloaded on this machine. Check chrome://components.');
+    }
+
+    const systemInstruction = `You are a professional software engineer performing a line-by-line code review of a GitHub PR.
+Analyze the file changes carefully, looking for:
+- Bug and logic errors.
+- Cleanliness, readability, and idiomatic code structure.
+- Efficiency and performance bottlenecks.
+- Basic security concerns.
+
+RULES:
+1. Only comment on added or modified lines (marked with '+' and having a positive integer line number in brackets like [12]).
+2. Never comment on deleted lines (marked with '[-]') or context lines.
+3. Ensure comments are highly specific and actionable.
+4. You must output a JSON object matching this schema. Your entire response must be a single, valid JSON object, and contain nothing else. Do not use markdown wraps or explanations outside of the JSON.
+{
+  "comments": [
+    {
+      "path": "relative/file/path.js",
+      "line": 12,
+      "body": "Your review comment on this line"
+    }
+  ]
+}
+5. If no issues are found, return an empty comments list. Keep comments focused, only comment on actual issues or clear improvements.`;
+
+    const userPrompt = `Here is the formatted diff showing the files and lines changed in the pull request:
+
+${formattedChanges}
+
+Please review the code changes and return your response strictly as a JSON object containing the comments.`;
+
+    let session;
+    try {
+      session = await window.ai.languageModel.create({
+        systemPrompt: systemInstruction,
+        temperature: 0.2
+      });
+
+      const responseText = await session.prompt(userPrompt);
+      
+      let cleanedText = responseText.trim();
+      if (cleanedText.startsWith('```json')) {
+        cleanedText = cleanedText.substring(7);
+      }
+      if (cleanedText.endsWith('```')) {
+        cleanedText = cleanedText.substring(0, cleanedText.length - 3);
+      }
+      cleanedText = cleanedText.trim();
+
+      return JSON.parse(cleanedText);
+    } catch (error) {
+      console.error('Error in local Gemini review:', error);
+      throw error;
+    } finally {
+      if (session) {
+        session.destroy();
+      }
+    }
+  }
+
+  async runClaudeWebReview(formattedChanges) {
+    const systemInstruction = `You are a professional software engineer performing a line-by-line code review of a GitHub PR.
+Analyze the file changes carefully, looking for:
+- Bug and logic errors.
+- Cleanliness, readability, and idiomatic code structure.
+- Efficiency and performance bottlenecks.
+- Basic security concerns.
+
+RULES:
+1. Only comment on added or modified lines (marked with '+' and having a positive integer line number in brackets like [12]).
+2. Never comment on deleted lines (marked with '[-]') or context lines.
+3. Ensure comments are highly specific and actionable.
+4. You must output a JSON object matching this schema. Your entire response must be a single, valid JSON object, and contain nothing else. Do not use markdown wraps or explanations outside of the JSON.
+{
+  "comments": [
+    {
+      "path": "relative/file/path.js",
+      "line": 12,
+      "body": "Your review comment on this line"
+    }
+  ]
+}
+5. If no issues are found, return an empty comments list. Keep comments focused, only comment on actual issues or clear improvements.`;
+
+    const userPrompt = `Here is the formatted diff showing the files and lines changed in the pull request:
+
+${formattedChanges}
+
+Please review the code changes and return your response strictly as a JSON object containing the comments.`;
+
+    try {
+      const orgId = await this.fetchClaudeWebOrgId();
+      const convId = await this.createClaudeWebConversation(orgId);
+
+      const promptText = `${systemInstruction}\n\n${userPrompt}`;
+      const response = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convId}/completion`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          attachments: [],
+          files: [],
+          model: "claude-3-5-sonnet",
+          timezone: "UTC",
+          rendering_mode: "raw",
+          prompt: promptText
+        })
+      });
+
+      if (!response.ok) throw new Error(`Claude Web Completion failed: ${response.status}`);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let done = false;
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.trim().startsWith('data:')) {
+              try {
+                const jsonStr = line.replace(/^data:\s*/, '').trim();
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.completion) {
+                  fullText += parsed.completion;
+                }
+              } catch (e) {
+                // skip
+              }
+            }
+          }
+        }
+      }
+
+      await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convId}`, {
+        method: 'DELETE'
+      }).catch(() => {});
+
+      let cleanedText = fullText.trim();
+      if (cleanedText.startsWith('```json')) {
+        cleanedText = cleanedText.substring(7);
+      }
+      if (cleanedText.endsWith('```')) {
+        cleanedText = cleanedText.substring(0, cleanedText.length - 3);
+      }
+      cleanedText = cleanedText.trim();
+
+      return JSON.parse(cleanedText);
+
+    } catch (error) {
+      console.error('Error in Claude Web review:', error);
+      throw error;
+    }
+  }
+
+  async fetchClaudeWebOrgId() {
+    const response = await fetch('https://claude.ai/api/organizations', {
+      method: 'GET'
+    });
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 401) {
+        throw new Error('Please sign in to https://claude.ai in your browser first.');
+      }
+      throw new Error(`Failed to authenticate with Claude Web: ${response.status}`);
+    }
+    const orgs = await response.json();
+    if (!orgs || orgs.length === 0) throw new Error('No Claude organizations found.');
+    return orgs[0].uuid;
+  }
+
+  async createClaudeWebConversation(orgId) {
+    const response = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: "GitPilot AI Code Review"
+      })
+    });
+    if (!response.ok) throw new Error('Failed to create Claude Web conversation');
+    const conv = await response.json();
+    return conv.uuid;
+  }
 }
 
 // Export for use in background and popup
