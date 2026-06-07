@@ -124,7 +124,7 @@ export default function Home() {
             <svg viewBox="0 0 24 24">
               <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.162 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
             </svg>
-            <span class="logo-text">GitPilot Docs</span>
+            <span className="logo-text">GitPilot Docs</span>
           </a>
           <ul className="nav-links">
             <li>
@@ -235,7 +235,7 @@ export default function Home() {
             <div className="step-card">
               <div className="step-badge">2</div>
               <div className="step-body">
-                <h3 class="step-title">Create a GitHub Personal Access Token (PAT)</h3>
+                <h3 className="step-title">Create a GitHub Personal Access Token (PAT)</h3>
                 <p className="step-desc">GitPilot queries your Pull Requests directly from the GitHub REST API securely from your browser. To do this, it requires a Personal Access Token (classic) with access to your repositories.</p>
                 
                 <ul className="sub-steps">
@@ -277,7 +277,7 @@ export default function Home() {
             <div className="step-card">
               <div className="step-badge">3</div>
               <div className="step-body">
-                <h3 class="step-title">Load the Extension into Google Chrome</h3>
+                <h3 className="step-title">Load the Extension into Google Chrome</h3>
                 <p className="step-desc">With Developer Mode enabled, Chrome allows loading raw unpacked extension folders as fully functional extensions.</p>
                 
                 <ul className="sub-steps">
@@ -296,7 +296,7 @@ export default function Home() {
             <div className="step-card">
               <div className="step-badge">4</div>
               <div className="step-body">
-                <h3 class="step-title">Configure Settings & Personalize</h3>
+                <h3 className="step-title">Configure Settings & Personalize</h3>
                 <p className="step-desc">Once loaded, you need to input your GitHub PAT and optionally set up custom alarms, review intervals, or keyless AI reviewers.</p>
                 
                 <ul className="sub-steps">
@@ -358,7 +358,7 @@ export default function Home() {
           <div className="step-card" style={{ marginBottom: "40px", borderLeft: "4px solid var(--accent-blue)" }}>
             <div className="step-badge" style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--accent-blue)", color: "var(--accent-blue)" }}>📦</div>
             <div className="step-body">
-              <h3 class="step-title">Step 1: Manually Package the Extension</h3>
+              <h3 className="step-title">Step 1: Manually Package the Extension</h3>
               <p className="step-desc">To submit your extension to any web extensions store, you must bundle the files into a standard flat <strong>ZIP file</strong>. It&apos;s crucial that you only package client-facing files, omitting unnecessary repository configs or helper scripts.</p>
               
               <div className="pack-comparison">
@@ -396,8 +396,8 @@ export default function Home() {
                     <li>website / (this website directory)</li>
                     <li>README.md</li>
                     <li className="file">remove-bg.ps1</li>
-                    <li class="file">update-logo.ps1</li>
-                    <li class="file">fix-icon.ps1</li>
+                    <li className="file">update-logo.ps1</li>
+                    <li className="file">fix-icon.ps1</li>
                     <li>Other developer templates/plans</li>
                   </ul>
                 </div>
@@ -441,7 +441,7 @@ export default function Home() {
 
           {/* Platform Submission Guides (Sub-tabs) */}
           <div style={{ marginTop: "40px" }}>
-            <h3 class="step-title">
+            <h3 className="step-title">
               <svg viewBox="0 0 24 24" style={{ width: "24px", height: "24px", fill: "var(--accent-green)" }}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.53c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.4z"/></svg>
               Step 2: Cross-Store Publishing Portals
             </h3>
@@ -547,7 +547,7 @@ export default function Home() {
 
             {/* Mozilla Firefox Panel */}
             <div className={`store-panel ${activeStore === "firefox" ? "active" : ""}`}>
-              <h3>Mozilla Firefox (AMO) Publishing Guide</h3>
+              <h3>Mozilla Firefox (AMO) Guide</h3>
               <p className="step-desc" style={{ marginBottom: "15px" }}>Firefox fully supports Manifest V3 extensions now, but with some architectural nuances you should keep in mind.</p>
               
               <ul className="sub-steps">
